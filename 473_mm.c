@@ -20,10 +20,6 @@
 
 // Structures
 typedef struct {
-	int region;
-} virtMem;
-
-typedef struct {
 	int flag; //to check if it is empty or not
 	void *start_mem;
 	void *end_mem;
@@ -32,42 +28,60 @@ typedef struct {
 } myNode;
 myNode nodee;
 
+/*typedef struct {
+	void (*sa_handler)(int);
+	void (*sa_sigaction)(int, siginfo_t *, void *);
+	sigset_t *sa_mask;
+	int sa_flags;
+} mySigAction;
+mySigAction sa;*/
+struct sigaction sa; // using struct from signal.h
+
 // Global Variables
 int myType;
 int pageSize; // bytes in a page
-//// if not in mem then page fault
-
-
-void mySigHandler()
-{
-	int *ptr;
-	
-	pageSize = getpagesize(); // returns # of bytes in a page
-	//pageNumber = (si_addr - ptr)/pageSize
-	int pageNumber = (si_addr - ptr)/pageSize;
-}
 
 // Functions to Implement
+void mySigHandler(sa)
+{
+	// sa.sa_addr == addr_1;
+	
+	pageSize = getpagesize(); // returns # of bytes in a page
+	int pageNumber = ( (int)sa.sa_addr - (int)vm_start_addr )/pageSize;
+
+	// now have to check if its already in mem
+	  // if so, set PROT to Write
+	// if not in memory, set PROT to READ
+          // then gonna have to add memory
+	     // if memory is full then evict based on policy
+	     // if memory empty then add
+	//return 0;
+}
+
+void mm_init(void* vm, int vm_size, int n_frames, int page_size , int policy)
+{
+	sigset_t *set = &sa.sa_mask;
+	myType = policy;
+	//int mprotect(void *addr, size_t len, int prot);
+	mprotect(vm, vm_size, PROT_NONE); // PROT_NONE for right
+	
+	//int sigemptyset(sigset_t *set);
+	sigemptyset(set);
+
+	//now to connect it with mySigHandlerFunct()
+	// NOTE: Changing 'mySigHandler' to int from void fixes this error....
+	sa.sa_handler = mySigHandler(sa);
+
+	//int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
+	//sigaction( , , mySigHandler());
+	sigaction(SIGSEGV, &sa, NULL);
+}
+
 unsigned long mm_nsigsegvs()
 {
 	int i;
 
 	return 0l;
-}
-
-void mm_init(void* vm, int vm_size, int n_frames, int page_size , int policy)
-{
-	myType = policy;
-	//int mprotect(void *addr, size_t len, int prot);
-	mprotect(vm, page_size, 0); // PROT_NONE for right
-	// now do sigaction
-	//int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
-	sigaction( , , mySigHandler());
-
-	if (myType == 1) // FIFO
-	{
-		
-	}
 }
 
 int mm_report_npage_evicts(int i)
