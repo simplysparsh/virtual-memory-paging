@@ -28,35 +28,18 @@ typedef struct {
 } myNode;
 myNode nodee;
 
-/*typedef struct {
+// sigaction struct in 'signal.h'
+/*struct sigaction{
 	void (*sa_handler)(int);
 	void (*sa_sigaction)(int, siginfo_t *, void *);
 	sigset_t *sa_mask;
-	int sa_flags;
-} mySigAction;
-mySigAction sa;*/
+	int       sa_flags;
+};*/
 struct sigaction sa; // using struct from signal.h
 
 // Global Variables
 int myType;
 int pageSize; // bytes in a page
-
-// Functions to Implement
-void mySigHandler(sa)
-{
-	// sa.sa_addr == addr_1;
-	
-	pageSize = getpagesize(); // returns # of bytes in a page
-	int pageNumber = ( (int)sa.sa_addr - (int)vm_start_addr )/pageSize;
-
-	// now have to check if its already in mem
-	  // if so, set PROT to Write
-	// if not in memory, set PROT to READ
-          // then gonna have to add memory
-	     // if memory is full then evict based on policy
-	     // if memory empty then add
-	//return 0;
-}
 
 void mm_init(void* vm, int vm_size, int n_frames, int page_size , int policy)
 {
@@ -69,12 +52,37 @@ void mm_init(void* vm, int vm_size, int n_frames, int page_size , int policy)
 	sigemptyset(set);
 
 	//now to connect it with mySigHandlerFunct()
-	// NOTE: Changing 'mySigHandler' to int from void fixes this error....
 	sa.sa_handler = mySigHandler(sa);
 
 	//int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
 	//sigaction( , , mySigHandler());
 	sigaction(SIGSEGV, &sa, NULL);
+}
+
+// Functions to Implement
+void mySigHandler(sa)
+{
+	// sa.sa_addr == addr_1;
+	pageSize = getpagesize(); // returns # of bytes in a page
+	int pageNumber = ( (int)sa.sa_addr - (int)vm_start_addr )/pageSize;
+
+	
+	// now have to check if its already in mem
+	  // if so, set PROT to Write
+	// if not in memory, set PROT to READ
+          // then gonna have to add memory
+	     // if memory is full then evict based on policy
+	     // if memory empty then add
+}
+
+void FifoAlg (int index, int found)
+{
+	
+}
+
+void ClockAlg (int index, int found)
+{
+	
 }
 
 unsigned long mm_nsigsegvs()
