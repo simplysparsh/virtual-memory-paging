@@ -87,9 +87,9 @@ void mySigHandler(sa)
 	{
 		mprotect(myVMStart, myVMSize, PROT_WRITE);
 	}
-	else
+	else // not in queue/memory
 	{
-		// Now add to queue/memory
+		// So then add to queue/memory
 		numFaults = numFaults + 1;
 		mprotect(myVMStart, myVMSize, PROT_READ); // After its in queue, set privelage to READ.
 	}
