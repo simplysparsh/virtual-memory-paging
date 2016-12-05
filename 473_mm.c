@@ -20,7 +20,7 @@
 
 // Structures
 typedef struct {
-	int flag; //to check if it is empty or not
+	int size;
 	void *start_mem;
 	void *end_mem;
 	struct myNode *next;
@@ -39,16 +39,27 @@ struct sigaction sa; // using struct from signal.h
 
 // Global Variables
 int myType;
-int pageSize; // bytes in a page
+void *myVMStart;
+int myVMSize;
+int myNumFrames;
+int myPageSize; // bytes in a page
+int myNumPages;
+int thePage;
+int numFaults = 0;
 
-void mm_init(void* vm, int vm_size, int n_frames, int page_size , int policy)
+void mm_init(void *vm, int vm_size, int n_frames, int page_size , int policy)
 {
-	sigset_t *set = &sa.sa_mask;
+	myVMStart = vm;
+	myVMSize = vm_size;
+	myNumFrames = n_frames;
+	myPageSize = page_size;
 	myType = policy;
+
 	//int mprotect(void *addr, size_t len, int prot);
 	mprotect(vm, vm_size, PROT_NONE); // PROT_NONE for right
 	
 	//int sigemptyset(sigset_t *set);
+	sigset_t *set = &sa.sa_mask;
 	sigemptyset(set);
 
 	//now to connect it with mySigHandlerFunct()
@@ -63,21 +74,35 @@ void mm_init(void* vm, int vm_size, int n_frames, int page_size , int policy)
 void mySigHandler(sa)
 {
 	// sa.sa_addr == addr_1;
-	pageSize = getpagesize(); // returns # of bytes in a page
-	int pageNumber = ( (int)sa.sa_addr - (int)vm_start_addr )/pageSize;
+	myPageSize = getpagesize(); // returns # of bytes in a page
+	int pageNumber = ( (int)sa.sa_addr - (int)myVMStart )/myPageSize;
 
-	
 	// now have to check if its already in mem
 	  // if so, set PROT to Write
 	// if not in memory, set PROT to READ
           // then gonna have to add memory
 	     // if memory is full then evict based on policy
 	     // if memory empty then add
+	if (thePage != NULL) // page is already in queue/memory
+	{
+		mprotect(myVMStart, myVMSize, PROT_WRITE);
+	}
+	else
+	{
+		// Now add to queue/memory
+		numFaults = numFaults + 1;
+		mprotect(myVMStart, myVMSize, PROT_READ); // After its in queue, set privelage to READ.
+	}
 }
 
 void FifoAlg (int index, int found)
 {
-	
+	int i;
+
+	for (i = 0; i < myNumPages; i++)
+	{
+		
+	}
 }
 
 void ClockAlg (int index, int found)
