@@ -44,7 +44,6 @@ int myVMSize;
 int myNumFrames;
 int myPageSize; // bytes in a page
 int myNumPages;
-int thePage;
 int numFaults = 0;
 
 void mm_init(void *vm, int vm_size, int n_frames, int page_size , int policy)
@@ -62,7 +61,7 @@ void mm_init(void *vm, int vm_size, int n_frames, int page_size , int policy)
 	sigset_t *set = &sa.sa_mask;
 	sigemptyset(set);
 
-	//now to connect it with mySigHandlerFunct()
+	//now to connect it with 'mySigHandler(sa)'
 	sa.sa_handler = mySigHandler(sa);
 
 	//int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
@@ -83,9 +82,9 @@ void mySigHandler(sa)
           // then gonna have to add memory
 	     // if memory is full then evict based on policy
 	     // if memory empty then add
-	if (thePage != NULL) // page is already in queue/memory
+	if (pageNumber != NULL) // page is already in queue/memory
 	{
-		mprotect(myVMStart, myVMSize, PROT_WRITE);
+		mprotect(myVMStart, myVMSize, PROT_READ|PROT_WRITE);
 	}
 	else // not in queue/memory
 	{
@@ -128,10 +127,7 @@ int mm_report_npage_evicts(int i)
 
 int mm_report_nframe_evicts(int i)
 {
-/**
- * Fill Your Code Here
- *
- */
+	/* Do Not Have to Implement */
 	return -1;
 }
 
