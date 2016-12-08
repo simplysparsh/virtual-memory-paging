@@ -20,13 +20,23 @@
 
 // Structures
 typedef struct {
-	int pageNumber;
+	int pageNumber; // in memory or not
 	void *startOfMem;
 	int dirtyBit;
-	int listLength; // to check if full or not
+	int listLength; // to check if full or not ; Also to increase/dec size
+	int permissionFlag; // PROT_NONE, READ, WRITE
 	struct pageNode *next;
 } pageNode;
 pageNode nodee;
+pageNode *pagesPtr;
+//pageNode *walkList; // pointer to traverse through phys. list
+
+typedef struct {
+	int listLengthQ;
+	struct pageNode *head;
+	struct pageNode *tail;
+} myQueue;
+myQueue *fifoQueue;
 
 // sigaction struct in 'signal.h'
 /*struct sigaction{
@@ -54,6 +64,11 @@ void mm_init(void *vm, int vm_size, int n_frames, int page_size , int policy)
 	myNumFrames = n_frames;
 	myPageSize = page_size;
 	myType = policy;
+	pagesPtr = NULL;
+	fifoQueue = malloc(sizeof(myQueue));
+	fifoQueue->head = NULL;
+	fifoQueue->tail = NULL;
+	fifoQueue->listLengthQ = 0;
 
 	//int mprotect(void *addr, size_t len, int prot);
 	mprotect(vm, vm_size, PROT_NONE); // PROT_NONE for right
@@ -78,20 +93,16 @@ void mySigHandler(int sigNum, siginfo_t st, void *unused)
 	myPageSize = getpagesize(); // returns # of bytes in a page
 	nodee.pageNumber = ( ((int)st.si_addr - (int)myVMStart)/myPageSize ) + 1; // +1 to get to PAGE 1
 
-	// now have to check if its already in mem
-	  // if so, set PROT to Write
-	// if not in memory, set PROT to READ
-          // then gonna have to add memory
-	     // if memory is full then evict based on policy
-	     // if memory empty then add
-	pageNode *walkList; // pointer to traverse through list
+	//pageNode *walkList; // pointer to traverse through phys. list
+	pageNode *walkList = pagesPtr;
 
 	if (myType == FIFO)
 	{
 		while (walkList != NULL) // page is already in queue/memory
 		{
-			if (walkList > 0) // make sure its not empty
+			if (walkList->pageNumber == nodee.pageNumber) // in memory or not
 			{//walkList->pageNumber == nodee.pageNumber
+				walkList->permissionFlag == 1;
 				mprotect(myVMStart, myVMSize, PROT_READ|PROT_WRITE);
 				break;
 			}
@@ -100,31 +111,79 @@ void mySigHandler(int sigNum, siginfo_t st, void *unused)
 		if (walkList == NULL) // its not in memory
 		{
 			numFaults++; // if not in mem, then page fault
+			// now I have to add to memory....
+
+			//pageNode *newPage = newPageFunc(nodee.pageNumber, myVMStart);
+			//enqueue(fifoQueue, newPage);
+
+			if (fifoQueue->listLengthQ >= myNumFrames) // list full so evict
+			{
+				// now I have to evict....
+				
+				//pageNode *temp = fifoQueue->head;
+				if (fifoQueue->head->next != NULL)
+				{
+					fifoQueue->head = fifoQueue->head->next;
+					fifoQueue->head->prev = NULL;
+				}
+				else
+				{
+					fifoQueue->head = NULL;
+				}
+				fifoQueue->listLengthQ--; // We eject, so minus
+
+				if (pagesPtr->permissionFlag == 1) // its been referenced
+				{
+					numWriteBacks++;
+				}
+				// ** after insert plus one to list; eject minus one. **
+			}
+			else // list not full
+			{
+				// now I have to add....
+
+				
+			}
 			mprotect(myVMStart, myVMSize, PROT_READ);
 		}
 	}
-/*	else // not in queue/memory
-	{
-		// So then add to queue/memory
-		numFaults = numFaults + 1;
-		mprotect(myVMStart, myVMSize, PROT_READ); // After its in queue, set permission to READ.
-	}*/
 }
-
-void FifoAlg (int index, int found)
+/*
+pageNode *newPageFunc(int number, void *myVMStart)
 {
-	int i;
+    pageNode *newPage = malloc(sizeof(pageNode));
 
-	for (i = 0; i < myNumPages; i++)
-	{
-		
-	}
-}
+    newPage->start = start_addr;
+    newPage->size = PAGE_SIZE;
+    newPage->number = number;
+    newPage->referenced = referenced;
+    newPage->modified = modified;
 
-void ClockAlg (int index, int found)
+    return newPage;
+}*/
+/*
+void enqueue(virtual_page_queue *queue, virtual_page *page)
 {
-	
-}
+    // Check if we need to evict any pages first.
+    if (queue->size >= NUMBER_OF_FRAMES) {
+        virtual_page *evicted_page = dequeue(PAGE_QUEUE);
+        // If the page was modified, increment the write back count.
+        if (evicted_page->modified == 1) {
+            WRITE_BACK_COUNT++;
+        }
+    }
+
+    if (queue->head == NULL) {
+        queue->head = page;
+        queue->tail = page;
+        page->next = NULL;
+    } else {
+        page->prev = queue->tail;
+        queue->tail->next = page;
+        queue->tail = page;
+    }
+    queue->size++;
+}*/
 
 unsigned long mm_nsigsegvs()
 {
@@ -134,10 +193,7 @@ unsigned long mm_nsigsegvs()
 
 int mm_report_npage_evicts(int i)
 {
-/**
- * Fill Your Code Here
- *
- */
+	
 	return -1;
 }
 
