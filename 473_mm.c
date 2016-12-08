@@ -26,6 +26,7 @@ typedef struct {
 	int listLength; // to check if full or not ; Also to increase/dec size
 	int permissionFlag; // PROT_NONE, READ, WRITE
 	struct pageNode *next;
+	struct pageNode *previous;
 } pageNode;
 pageNode nodee;
 pageNode *pagesPtr;
@@ -33,8 +34,8 @@ pageNode *pagesPtr;
 
 typedef struct {
 	int listLengthQ;
-	struct pageNode *head;
-	struct pageNode *tail;
+	pageNode *head;
+	pageNode *tail;
 } myQueue;
 myQueue *fifoQueue;
 
@@ -90,7 +91,7 @@ void mm_init(void *vm, int vm_size, int n_frames, int page_size , int policy)
 void mySigHandler(int sigNum, siginfo_t st, void *unused)
 {
 	// st.si_addr == addr_1;
-	myPageSize = getpagesize(); // returns # of bytes in a page
+	//myPageSize = getpagesize(); // returns # of bytes in a page
 	nodee.pageNumber = ( ((int)st.si_addr - (int)myVMStart)/myPageSize ) + 1; // +1 to get to PAGE 1
 
 	//pageNode *walkList; // pointer to traverse through phys. list
@@ -100,7 +101,7 @@ void mySigHandler(int sigNum, siginfo_t st, void *unused)
 	{
 		while (walkList != NULL) // page is already in queue/memory
 		{
-			if (walkList->pageNumber == nodee.pageNumber) // in memory or not
+			if (walkList->pageNumber == nodee.pageNumber) // SEG_FAULTS HERE!!
 			{//walkList->pageNumber == nodee.pageNumber
 				walkList->permissionFlag == 1;
 				mprotect(myVMStart, myVMSize, PROT_READ|PROT_WRITE);
@@ -124,7 +125,7 @@ void mySigHandler(int sigNum, siginfo_t st, void *unused)
 				if (fifoQueue->head->next != NULL)
 				{
 					fifoQueue->head = fifoQueue->head->next;
-					fifoQueue->head->prev = NULL;
+					fifoQueue->head->previous = NULL;
 				}
 				else
 				{
