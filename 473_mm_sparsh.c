@@ -36,6 +36,7 @@ void add_to_end_of_phy_mem(pageNode_t* new_page_addr);
 int get_physical_mem_length();
 void remove_first_element_of_phy_mem();
 pageNode_t* search_in_phy_mem(void* sig_addr);
+pageNode_t* get_tail();
 
 pageNode_t* physical_mem = NULL;
 
@@ -143,6 +144,16 @@ void mySigHandler(int sigNum, siginfo_t *st, void *unused)
 	} 
 	else if(myType == CLOCK) {
 
+		pageNode_t* page_addr_in_phy_mem = search_in_phy_mem(st->si_addr);
+		if(page_addr_in_phy_mem != NULL){
+			//write
+			if (mprotect(page_addr_in_phy_mem -> start, myPageSize, PROT_WRITE) == -1)
+				printf("ERROR: mprotect for PROT_WRITE in CLOCK failed\n");
+			return;
+		}
+
+		total_npage_faults++;
+
 		if(get_physical_mem_length() < myNumFrames) {
 
 			void* start_address = signal_addr_to_page_addr(st->si_addr);
@@ -150,13 +161,37 @@ void mySigHandler(int sigNum, siginfo_t *st, void *unused)
 			pageNode_t* new_page_addr = create_new_page(start_address, page);
 			add_to_end_of_phy_mem(new_page_addr);
 
-			if (mprotect(start_address, myPageSize, PROT_READ|PROT_WRITE) == -1)
-				printf("ERROR: mprotect for FIFO failed\n");
+			if (mprotect(start_address, myPageSize, PROT_READ) == -1)
+				printf("ERROR: mprotect for CLOCK failed\n");
 		}
 		else {
 			//evict and add using clock
+			pageNode_t* page_to_evict;
+			pageNode_t* tail = get_tail();
+			pageNode_t* current = physical_mem;
+
+			while(physical_mem->reference_bit != 0){
+				tail->next = physical_mem;
+				physical_mem -> reference_bit = 0;
+				tail = physical_mem;
+				physical_mem = physical_mem -> next;
+				tail->next = NULL;
+			}
+			if (mprotect(physical_mem->start, myPageSize, PROT_NONE) == -1)
+				printf("ERROR: mprotect for CLOCK failed\n");
+			page_evicts[physical_mem->pageNumber]++;
+			remove_first_element_of_phy_mem();
+
+			//add
+			void* start_address = signal_addr_to_page_addr(st->si_addr);
+			int page = page_addr_to_page_num(start_address);
+			pageNode_t* new_page_addr = create_new_page(start_address, page);
+			add_to_end_of_phy_mem(new_page_addr);
+
+			if (mprotect(start_address, myPageSize, PROT_READ) == -1)
+				printf("ERROR: mprotect for CLOCK failed\n");
 		}
-		
+
 	}
 	else{
 		printf("ERROR: Policy is neither FIFO nor CLOCK\n");
@@ -170,7 +205,7 @@ pageNode_t* create_new_page(void* start_addr, int page_num) {
 
     newPage->start = start_addr;
     newPage->pageNumber = page_num;
-    newPage->reference_bit = 0;
+    newPage->reference_bit = 1;
     newPage->next = NULL;
 
     return newPage;
@@ -274,5 +309,13 @@ pageNode_t* search_in_phy_mem(void* sig_addr) {
     	}
     	return NULL;
     }
+}
 
+pageNode_t* get_tail() {
+	pageNode_t* current = physical_mem;
+
+	while(current->next != NULL){
+		current = current->next;
+	}
+	return current;
 }
