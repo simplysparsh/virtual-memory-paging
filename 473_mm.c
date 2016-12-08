@@ -18,6 +18,10 @@
 #define FIFO    1
 #define CLOCK   2
 
+//Fuction Declaration
+void mySigHandler(int sigNum, siginfo_t *st, void *unused);
+
+
 // Structures
 typedef struct {
 	int pageNumber; // in memory or not
@@ -81,18 +85,18 @@ void mm_init(void *vm, int vm_size, int n_frames, int page_size , int policy)
 	sigemptyset(set);
 
 	//now bind it with 'mySigHandler' function
-	sa.sa_handler = mySigHandler(sa);
+	sa.sa_sigaction = mySigHandler;
 
 	//int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
 	sigaction(SIGSEGV, &sa, NULL); // register signals
 }
 
 // Functions to Implement
-void mySigHandler(int sigNum, siginfo_t st, void *unused)
+void mySigHandler(int sigNum, siginfo_t *st, void *unused)
 {
 	// st.si_addr == addr_1;
 	//myPageSize = getpagesize(); // returns # of bytes in a page
-	nodee.pageNumber = ( ((int)st.si_addr - (int)myVMStart)/myPageSize ) + 1; // +1 to get to PAGE 1
+	nodee.pageNumber = ((long)st->si_addr - ((long)myVMStart/myPageSize)  + 1); // +1 to get to PAGE 1
 
 	//pageNode *walkList; // pointer to traverse through phys. list
 	pageNode *walkList = pagesPtr;
