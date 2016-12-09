@@ -18,37 +18,29 @@
 #define FIFO    1
 #define CLOCK   2
 
-// Function Declarations
-void mySigHandler(int sigNum, siginfo_t *st, void *unused);
-
 // Structures
-typedef struct {
+typedef struct pageNode pageNode_t;
+struct pageNode {
 	int pageNumber; // in memory or not
-	void *startOfMem;
+	void *start;
+	int reference_bit;
 	int dirtyBit;
-	int listLength; // to check if full or not ; Also to increase/dec size
-	int permissionFlag; // PROT_NONE, READ, WRITE
-	struct pageNode *next;
-	struct pageNode *previous;
-} pageNode;
-pageNode nodee;
-pageNode *pagesPtr;
-//pageNode *walkList; // pointer to traverse through phys. list
+	pageNode_t *next;
+};
 
-typedef struct {
-	int listLengthQ;
-	pageNode *head;
-	pageNode *tail;
-} myQueue;
-myQueue *fifoQueue;
+//Fuction Declaration
+void mySigHandler(int sigNum, siginfo_t *st, void *unused);
+void* signal_addr_to_page_addr(void* signal_addr);
+int page_addr_to_page_num(void* page_addr);
+pageNode_t* create_new_page(void* start_addr, int page_num);
+void add_to_end_of_phy_mem(pageNode_t* new_page_addr);
+int get_physical_mem_length();
+void remove_first_element_of_phy_mem();
+pageNode_t* search_in_phy_mem(void* sig_addr);
+pageNode_t* get_tail();
 
-// sigaction struct in 'signal.h'
-/*struct sigaction{
-	void (*sa_handler)(int);
-	void (*sa_sigaction)(int, siginfo_t *, void *);
-	sigset_t *sa_mask;
-	int       sa_flags;
-};*/
+pageNode_t* physical_mem = NULL;
+
 struct sigaction sa; // using struct from signal.h
 
 // Global Variables
@@ -58,8 +50,15 @@ int myVMSize;
 int myNumFrames;
 int myPageSize; // bytes in a page
 int myNumPages;
+
 int numFaults = 0;
 int numWriteBacks = 0;
+
+unsigned long total_sigsevs = 0;
+unsigned long total_npage_faults = 0;
+int total_npage_evicts = 0;
+
+int* page_evicts = NULL; //Array
 
 // Functions to Implement
 void mm_init(void *vm, int vm_size, int n_frames, int page_size , int policy)
@@ -69,126 +68,175 @@ void mm_init(void *vm, int vm_size, int n_frames, int page_size , int policy)
 	myNumFrames = n_frames;
 	myPageSize = page_size;
 	myType = policy;
-	pagesPtr = NULL;
-	fifoQueue = malloc(sizeof(myQueue));
-	fifoQueue->head = NULL;
-	fifoQueue->tail = NULL;
-	fifoQueue->listLengthQ = 0;
+
+	//##### Setup for page evicts function #####//
+	int max_pages = myVMSize/myPageSize;
+	page_evicts = malloc(max_pages*sizeof(int));
+
+	int i;
+	for(i = 0; i < max_pages; i++)
+	{
+		page_evicts[i] = 0;
+	}
+	//##########################################//
 
 	//int mprotect(void *addr, size_t len, int prot);
 	mprotect(vm, vm_size, PROT_NONE); // PROT_NONE for right
 
-	sa.sa_flags = SA_RESTART; // restart functions if interrupted by handler
+	sa.sa_flags = SA_SIGINFO; //To use sa_sigaction as handler 
 	
 	//int sigemptyset(sigset_t *set);
 	sigset_t *set = &sa.sa_mask;
 	sigemptyset(set);
 
 	//now bind it with 'mySigHandler' function
-	sa.sa_sigaction = mySigHandler;
-	//sa.sa_handler = mySigHandler(sa);
+	sa.sa_sigaction = &mySigHandler;
 
 	//int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
-	sigaction(SIGSEGV, &sa, NULL); // register signals
+	if (sigaction(SIGSEGV, &sa, NULL) == -1) // error check/register signals
+	{
+		printf("ERROR: sigaction in mm_init failed\n");
+	}
 }
 
 // Functions to Implement
 void mySigHandler(int sigNum, siginfo_t *st, void *unused)
 {
-	// st.si_addr == addr_1;
-	//myPageSize = getpagesize(); // returns # of bytes in a page
-	nodee.pageNumber = ( ((long)st->si_addr - (long)myVMStart)/myPageSize ) + 1; // +1 to get to PAGE 1
-
-	//pageNode *walkList; // pointer to traverse through phys. list
-	pageNode *walkList;
-	//pageNode *walkList = pagesPtr;
+	total_sigsevs++;
 
 	if (myType == FIFO)
 	{
-		if (walkList != NULL)
+		pageNode_t* page_addr_in_phy_mem = search_in_phy_mem(st->si_addr);
+		if(page_addr_in_phy_mem != NULL)
 		{
-			walkList->permissionFlag = 1;
-			mprotect(walkList->startOfMem, myPageSize, PROT_READ|PROT_WRITE);
+			//write
+			page_addr_in_phy_mem->dirtyBit = 1; // set bit to one when write
+			if (mprotect(page_addr_in_phy_mem -> start, myPageSize, PROT_WRITE) == -1)
+				printf("ERROR: mprotect for PROT_WRITE in FIFO failed\n");
+			return;
 		}
-		/*while (walkList != NULL) // page is already in queue/memory
+
+		total_npage_faults++;
+
+		if(get_physical_mem_length() < myNumFrames)
 		{
-			if (walkList->pageNumber == nodee.pageNumber)
-			{//walkList->pageNumber == nodee.pageNumber
-				walkList->permissionFlag = 1;
-				mprotect(myVMStart, myVMSize, PROT_READ|PROT_WRITE);
-				break;
-			}
-			walkList = walkList->next;
-		}*/
-		if (walkList == NULL) // its not in memory
-		{	
-			numFaults = numFaults + 1; // if not in mem, then page fault
-			mprotect(myVMStart, myVMSize, PROT_READ);
+			//add frame
+			void* start_address = signal_addr_to_page_addr(st->si_addr);
+			int page = page_addr_to_page_num(start_address);
+			pageNode_t* new_page_addr = create_new_page(start_address, page);
+			add_to_end_of_phy_mem(new_page_addr);
 
-			// Note: after insert plus one to list; eject then minus one. /
-			// now I have to add to memory....
-			pageNode *newPage = malloc(sizeof(pageNode));
-			newPage->pageNumber = nodee.pageNumber;
-			newPage->startOfMem = myVMStart;
-
-			//pageNode *newPage = newPageFunc(nodee.pageNumber, myVMStart);
-			//enqueue(fifoQueue, newPage);
-
-			if (fifoQueue->listLengthQ >= myNumFrames) // list full so evict
-			{
-				// now I have to evict....
-				
-				//pageNode *temp = fifoQueue->head;
-				if (fifoQueue->head->next != NULL)
-				{
-					fifoQueue->head = fifoQueue->head->next;
-					fifoQueue->head->previous = NULL;
-				}
-				else
-				{
-					fifoQueue->head = NULL;
-				}
-				fifoQueue->listLengthQ--; // We eject, so minus
-
-				if (pagesPtr->permissionFlag == 1) // its been referenced
-				{
-					numWriteBacks = numWriteBacks + 1;
-				}
-				//free(newPage);
-				//newPage = NULL;
-			}
-			else // list not full
-			{
-				// now I have to insert....
-				if (fifoQueue->head == NULL)
-				{
-					fifoQueue->head = pagesPtr;
-					fifoQueue->tail = pagesPtr;
-					pagesPtr->next = NULL;
-				}
-				else
-				{
-					pagesPtr->previous = fifoQueue->tail;
-					fifoQueue->tail->next = pagesPtr;
-					fifoQueue->tail = pagesPtr;
-				}
-				fifoQueue->listLengthQ++; // we insert, so plus	
-			}
-			//mprotect(myVMStart, myVMSize, PROT_READ);
+			if (mprotect(start_address, myPageSize, PROT_READ) == -1)
+				printf("ERROR: mprotect for FIFO failed\n");
 		}
+		else
+		{
+			//evict 
+			if (mprotect(physical_mem->start, myPageSize, PROT_NONE) == -1)
+				printf("ERROR: mprotect, before evicting in fifo, failed\n");
+			page_evicts[physical_mem->pageNumber]++;
+			remove_first_element_of_phy_mem();
+
+ 			//add
+			void* start_address = signal_addr_to_page_addr(st->si_addr);
+			int page = page_addr_to_page_num(start_address);
+			pageNode_t* new_page_addr = create_new_page(start_address, page);
+			add_to_end_of_phy_mem(new_page_addr);
+
+			if (mprotect(start_address, myPageSize, PROT_READ) == -1)
+				printf("ERROR: mprotect for FIFO failed\n");
+		}
+
+	} 
+	else if(myType == CLOCK) {
+
+		pageNode_t* page_addr_in_phy_mem = search_in_phy_mem(st->si_addr);
+		if(page_addr_in_phy_mem != NULL){ // already in memory
+			//write
+			page_addr_in_phy_mem->dirtyBit = 1; // set bit to one when write
+			if (mprotect(page_addr_in_phy_mem -> start, myPageSize, PROT_WRITE) == -1)
+				printf("ERROR: mprotect for PROT_WRITE in CLOCK failed\n");
+			return;
+		}
+
+		total_npage_faults++;
+
+		if(get_physical_mem_length() < myNumFrames) { // List is not full
+
+			void* start_address = signal_addr_to_page_addr(st->si_addr);
+			int page = page_addr_to_page_num(start_address);
+			pageNode_t* new_page_addr = create_new_page(start_address, page);
+			add_to_end_of_phy_mem(new_page_addr);
+
+			if (mprotect(start_address, myPageSize, PROT_READ) == -1)
+				printf("ERROR: mprotect for CLOCK failed\n");
+		}
+		else { // List is Full
+			// evict and add using clock
+			pageNode_t* page_to_evict;
+			pageNode_t* tail = get_tail();
+			pageNode_t* current = physical_mem;
+
+			while (physical_mem->reference_bit != 0) {
+				tail->next = physical_mem;
+				physical_mem -> reference_bit = 0;
+				tail = physical_mem;
+				physical_mem = physical_mem -> next;
+				tail->next = NULL;
+			}
+			if (mprotect(physical_mem->start, myPageSize, PROT_NONE) == -1)
+				printf("ERROR: mprotect for CLOCK failed\n");
+			page_evicts[physical_mem->pageNumber]++;
+			remove_first_element_of_phy_mem();
+
+			// add
+			void* start_address = signal_addr_to_page_addr(st->si_addr);
+			int page = page_addr_to_page_num(start_address);
+			pageNode_t* new_page_addr = create_new_page(start_address, page);
+			add_to_end_of_phy_mem(new_page_addr);
+
+			if (mprotect(start_address, myPageSize, PROT_READ) == -1)
+				printf("ERROR: mprotect for CLOCK failed\n");
+		}
+
 	}
+	else
+	{
+		printf("ERROR: Policy is neither FIFO nor CLOCK\n");
+	}
+}
+
+pageNode_t* create_new_page(void* start_addr, int page_num) { 	
+
+    	pageNode_t* newPage = malloc(sizeof(pageNode_t));
+
+    	newPage->start = start_addr;
+    	newPage->pageNumber = page_num;
+    	newPage->reference_bit = 1;
+	newPage->dirtyBit = 0;
+    	newPage->next = NULL;
+
+    	return newPage;
 }
 
 unsigned long mm_nsigsegvs()
 {
-	
-	return 0l;
+	return total_sigsevs;
 }
 
-int mm_report_npage_evicts(int i)
+int mm_report_npage_evicts(int page_num)
 {
-	
-	return -1;
+	return page_evicts[page_num];
+}
+
+unsigned long mm_report_npage_faults()
+{
+	return total_npage_faults;
+}
+
+unsigned long mm_report_nwrite_backs()
+{
+	return numWriteBacks;
 }
 
 int mm_report_nframe_evicts(int i)
@@ -197,17 +245,84 @@ int mm_report_nframe_evicts(int i)
 	return -1;
 }
 
-unsigned long mm_report_npage_faults()
-{
-	return numFaults;
+void* signal_addr_to_page_addr(void* signal_addr) {
+	int page_num = 0;
+	void* page_addr;
 
-	return 0l;
+	page_num = ((int)signal_addr - (int)myVMStart )/myPageSize;
+	page_addr = myVMStart + (page_num * myPageSize);
+
+	return page_addr;
 }
 
-unsigned long mm_report_nwrite_backs()
-{
-	return numWriteBacks;
-
-	return 0l;
+int page_addr_to_page_num(void* page_addr) {
+	return (page_addr - myVMStart)/myPageSize;
 }
 
+void add_to_end_of_phy_mem(pageNode_t* new_page_addr) {
+	pageNode_t* current = NULL;
+	current = physical_mem;
+
+	if(physical_mem == NULL) {
+		physical_mem = new_page_addr;
+	} 
+	else {
+		while(current -> next != NULL)
+		{
+			current = current -> next;
+		}
+    	current->next = new_page_addr;
+	}
+}
+
+int get_physical_mem_length(){
+
+	int count = 0;  // Initialize count
+	pageNode_t* current = physical_mem;  // Initialize current
+	while (current != NULL)
+	{
+		count++;
+		current = current->next;
+	}
+	return count;
+}
+
+void remove_first_element_of_phy_mem() {
+	if (physical_mem->dirtyBit == 1)
+	{
+		numWriteBacks++; // if page modified, then write_back
+	}
+	pageNode_t* current = physical_mem;
+	physical_mem = physical_mem -> next;
+	free(current);
+}
+
+pageNode_t* search_in_phy_mem(void* sig_addr) {
+	void* page_start_address = signal_addr_to_page_addr(sig_addr);
+	pageNode_t* current = NULL;
+	current = physical_mem;
+
+	if(physical_mem == NULL){
+		return NULL;
+	}
+	else {
+		while(current != NULL){
+			if(current->start == page_start_address){
+				return current;
+			}
+			else {
+				current = current->next;
+			}
+		}
+		return NULL;
+	}
+}
+
+pageNode_t* get_tail() {
+	pageNode_t* current = physical_mem;
+
+	while(current->next != NULL){
+		current = current->next;
+	}
+	return current;
+}
