@@ -213,7 +213,7 @@ pageNode_t* create_new_page(void* start_addr, int page_num) {
     	newPage->start = start_addr;
     	newPage->pageNumber = page_num;
     	newPage->reference_bit = 1;
-	newPage->dirtyBit = 0;
+		newPage->dirtyBit = 0;
     	newPage->next = NULL;
 
     	return newPage;
