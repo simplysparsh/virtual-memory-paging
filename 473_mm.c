@@ -180,6 +180,8 @@ void mySigHandler(int sigNum, siginfo_t *st, void *unused)
 			while (physical_mem->reference_bit != 0) {
 				tail->next = physical_mem;
 				physical_mem -> reference_bit = 0;
+				if (mprotect(physical_mem->start, myPageSize, PROT_NONE) == -1)
+					printf("ERROR: mprotect for CLOCK in loop failed\n");
 				tail = physical_mem;
 				physical_mem = physical_mem -> next;
 				tail->next = NULL;
