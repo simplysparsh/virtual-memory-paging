@@ -151,6 +151,15 @@ void mySigHandler(int sigNum, siginfo_t *st, void *unused)
 	else if(myType == CLOCK) {
 
 		pageNode_t* page_addr_in_phy_mem = search_in_phy_mem(st->si_addr);
+
+		if(page_addr_in_phy_mem != NULL && (page_addr_in_phy_mem -> reference_bit == 0)){ 
+			page_addr_in_phy_mem->reference_bit = 1; 
+			if (mprotect(page_addr_in_phy_mem -> start, myPageSize, PROT_READ) == -1)
+				printf("ERROR: mprotect for PROT_READ in CLOCK failed\n");
+			return;
+		}
+
+
 		if(page_addr_in_phy_mem != NULL){ // already in memory
 			//write
 			page_addr_in_phy_mem->dirtyBit = 1; // set bit to one when write
